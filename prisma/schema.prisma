@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Customer booking created from the website booking system
+model Booking {
+  id            String   @id @default(cuid())
+  reference     String   @unique // e.g. CCP-8F3K2A
+  name          String
+  phone         String
+  email         String?
+  address       String
+  serviceType   String // service id from lib/business.ts
+  spaceSize     String // e.g. "15-30 sqm" or carpet rooms description
+  preferredDate String // ISO date (yyyy-MM-dd)
+  timeSlot      String // e.g. "8:00 AM - 11:00 AM"
+  estimate      Int? // instant estimate in PHP
+  notes         String?
+  status        String   @default("CONFIRMED") // CONFIRMED | COMPLETED | CANCELLED
+  createdAt     DateTime @default(now())
+}
+
+// Verified customer reviews (seeded samples -> replace with real FB reviews)
+model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  location  String
+  rating    Int      @default(5)
+  service   String
+  quote     String
+  featured  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// Newsletter / promo subscribers
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+}
