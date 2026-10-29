@@ -101,13 +101,22 @@ export async function GET(req: NextRequest) {
     }
 
     const digits = phone.replace(/\D/g, '')
-    const bookings = await db.booking.findMany({
-      where: {
-        phone: { contains: digits.slice(-10) },
-      },
+    const tail = digits.slice(-10)
+
+    // Phones are stored free-form (e.g. "0917 555 1234", "09175551234",
+    // "+63 917 555 1234"), so a literal `contains` on normalized digits
+    // would never match. Compare digit-by-digit instead.
+    const candidates = await db.booking.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      take: 500,
     })
+    const bookings = candidates
+      .filter((b) => {
+        const bd = b.phone.replace(/\D/g, '')
+        if (!bd) return false
+        return bd.endsWith(tail) || tail.endsWith(bd.slice(-10))
+      })
+      .slice(0, 10)
 
     return NextResponse.json({ bookings })
   } catch (err) {

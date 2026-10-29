@@ -255,15 +255,15 @@ export function BookingSection() {
                 </div>
               ) : (
                 <div className="grid gap-8 lg:grid-cols-5">
-                  <div className="lg:col-span-3">
+                  <div className="min-w-0 lg:col-span-3">
                     {/* date strip */}
-                    <fieldset>
+                    <fieldset className="min-w-0">
                       <legend className="flex items-center gap-2 text-sm font-bold">
                         <CalendarDays className="h-4 w-4 text-primary" aria-hidden />
                         1. Choose a date <span className="font-semibold text-muted-foreground">(we're open daily!)</span>
                       </legend>
                       <div
-                        className="scroll-slim mt-3 flex gap-2 overflow-x-auto pb-2"
+                        className="scroll-slim mt-3 flex snap-x snap-proximity gap-2 overflow-x-auto pb-2"
                         role="radiogroup"
                         aria-label="Preferred date"
                       >
@@ -275,7 +275,7 @@ export function BookingSection() {
                             disabled={!mounted}
                             onClick={() => setDateIdx(i)}
                             className={cn(
-                              'flex min-w-[68px] shrink-0 flex-col items-center rounded-xl border-2 px-2.5 py-2.5 transition-all focus-visible:outline-2 focus-visible:outline-ring',
+                              'flex min-w-[68px] shrink-0 snap-start flex-col items-center rounded-xl border-2 px-2.5 py-2.5 transition-all focus-visible:outline-2 focus-visible:outline-ring',
                               dateIdx === i
                                 ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                                 : 'border-border bg-background hover:border-primary/40'
@@ -296,7 +296,7 @@ export function BookingSection() {
                     </fieldset>
 
                     {/* time slots */}
-                    <fieldset className="mt-6">
+                    <fieldset className="min-w-0 mt-6">
                       <legend className="flex items-center gap-2 text-sm font-bold">
                         <Clock className="h-4 w-4 text-primary" aria-hidden />
                         2. Preferred time
@@ -322,7 +322,7 @@ export function BookingSection() {
                     </fieldset>
 
                     {/* contact details */}
-                    <fieldset className="mt-6">
+                    <fieldset className="min-w-0 mt-6">
                       <legend className="flex items-center gap-2 text-sm font-bold">
                         <User className="h-4 w-4 text-primary" aria-hidden />
                         3. Your details
@@ -390,7 +390,7 @@ export function BookingSection() {
                   </div>
 
                   {/* summary sidebar */}
-                  <aside className="lg:col-span-2">
+                  <aside className="min-w-0 lg:col-span-2">
                     <div className="sticky top-24 rounded-2xl border bg-secondary/50 p-5">
                       <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Booking summary</p>
 

@@ -1,0 +1,569 @@
+     1→'use client'
+     2→
+     3→import { useEffect, useMemo, useState } from 'react'
+     4→import { format, addDays } from 'date-fns'
+     5→import {
+     6→  CalendarDays,
+     7→  Clock,
+     8→  MapPin,
+     9→  User,
+    10→  Phone,
+    11→  NotebookPen,
+    12→  Search,
+    13→  CheckCircle2,
+    14→  CalendarCheck2,
+    15→  Loader2,
+    16→  PartyPopper,
+    17→  RotateCcw,
+    18→} from 'lucide-react'
+    19→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    20→import { Button } from '@/components/ui/button'
+    21→import { Input } from '@/components/ui/input'
+    22→import { Label } from '@/components/ui/label'
+    23→import { Textarea } from '@/components/ui/textarea'
+    24→import { Slider } from '@/components/ui/slider'
+    25→import { SectionHeading } from './section-heading'
+    26→import { Reveal } from './reveal'
+    27→import { SERVICES, type ServiceId } from '@/lib/business'
+    28→import { calculateEstimate, formatPeso } from '@/lib/pricing'
+    29→import { useBookingStore } from '@/lib/store'
+    30→import { useMounted } from '@/hooks/use-mounted'
+    31→import { toast } from 'sonner'
+    32→import { cn } from '@/lib/utils'
+    33→
+    34→const TIME_SLOTS = ['8:00 AM – 11:00 AM', '11:00 AM – 2:00 PM', '2:00 PM – 5:00 PM']
+    35→
+    36→interface BookingRecord {
+    37→  id: string
+    38→  reference: string
+    39→  name: string
+    40→  serviceType: string
+    41→  spaceSize: string
+    42→  preferredDate: string
+    43→  timeSlot: string
+    44→  address: string
+    45→  status: string
+    46→  estimate: number | null
+    47→}
+    48→
+    49→export function BookingSection() {
+    50→  const prefillService = useBookingStore((s) => s.prefillService)
+    51→  const prefillSqm = useBookingStore((s) => s.prefillSqm)
+    52→  const prefillStamp = useBookingStore((s) => s.prefillStamp)
+    53→
+    54→  const mounted = useMounted()
+    55→  const [tab, setTab] = useState('book')
+    56→  const [serviceId, setServiceId] = useState<ServiceId>(prefillService)
+    57→  const [sqm, setSqm] = useState(prefillSqm)
+    58→  const [carpetRooms, setCarpetRooms] = useState(1)
+    59→  const [dateIdx, setDateIdx] = useState(0)
+    60→  const [slot, setSlot] = useState<string>('')
+    61→  const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', notes: '' })
+    62→  const [submitting, setSubmitting] = useState(false)
+    63→  const [confirmed, setConfirmed] = useState<BookingRecord | null>(null)
+    64→
+    65→  // track tab
+    66→  const [trackPhone, setTrackPhone] = useState('')
+    67→  const [tracking, setTracking] = useState(false)
+    68→  const [trackResults, setTrackResults] = useState<BookingRecord[] | null>(null)
+    69→
+    70→  // react to calculator "Book this service" prefill
+    71→  useEffect(() => {
+    72→    if (prefillStamp === 0) return
+    73→    setServiceId(prefillService)
+    74→    setSqm(prefillSqm)
+    75→    setConfirmed(null)
+    76→    setTab('book') // always land on the booking form
+    77→  }, [prefillStamp, prefillService, prefillSqm])
+    78→
+    79→  const days = useMemo(
+    80→    () => Array.from({ length: 14 }, (_, i) => addDays(new Date(), i + 1)),
+    81→    []
+    82→  )
+    83→
+    84→  const isCarpet = serviceId === 'carpet'
+    85→  const spaceSize = isCarpet
+    86→    ? `${carpetRooms} room${carpetRooms > 1 ? 's' : ''} / area${carpetRooms >= 4 ? ' (whole home)' : ''}`
+    87→    : `${sqm} sqm`
+    88→
+    89→  const estimate = useMemo(
+    90→    () => calculateEstimate(serviceId, sqm, carpetRooms),
+    91→    [serviceId, sqm, carpetRooms]
+    92→  )
+    93→
+    94→  const submit = async () => {
+    95→    if (!form.name.trim() || form.name.trim().length < 2) {
+    96→      toast.error('Please enter your full name.')
+    97→      return
+    98→    }
+    99→    if (!/^[0-9+\-\s()]{10,20}$/.test(form.phone.trim())) {
+   100→      toast.error('Please enter a valid Philippine mobile number (e.g. 0917 123 4567).')
+   101→      return
+   102→    }
+   103→    if (form.email.trim() && !/^\S+@\S+\.\S+$/.test(form.email.trim())) {
+   104→      toast.error('That email doesn\'t look right — please check it.')
+   105→      return
+   106→    }
+   107→    if (form.address.trim().length < 5) {
+   108→      toast.error('Please enter the complete service address (with city).')
+   109→      return
+   110→    }
+   111→    if (!slot) {
+   112→      toast.error('Please pick a preferred time slot.')
+   113→      return
+   114→    }
+   115→
+   116→    setSubmitting(true)
+   117→    try {
+   118→      const res = await fetch('/api/bookings', {
+   119→        method: 'POST',
+   120→        headers: { 'Content-Type': 'application/json' },
+   121→        body: JSON.stringify({
+   122→          name: form.name.trim(),
+   123→          phone: form.phone.trim(),
+   124→          email: form.email.trim(),
+   125→          address: form.address.trim(),
+   126→          serviceType: serviceId,
+   127→          spaceSize,
+   128→          preferredDate: format(days[dateIdx], 'yyyy-MM-dd'),
+   129→          timeSlot: slot,
+   130→          estimate: estimate.estimate || undefined,
+   131→          notes: form.notes.trim(),
+   132→        }),
+   133→      })
+   134→      const data = await res.json()
+   135→      if (!res.ok) {
+   136→        toast.error(data?.error ?? 'Booking failed. Please try again.')
+   137→        return
+   138→      }
+   139→      setConfirmed(data.booking)
+   140→      toast.success('Booking request received! 🎉')
+   141→    } catch {
+   142→      toast.error('Network error — please check your connection and try again.')
+   143→    } finally {
+   144→      setSubmitting(false)
+   145→    }
+   146→  }
+   147→
+   148→  const track = async () => {
+   149→    if (trackPhone.trim().length < 7) {
+   150→      toast.error('Enter the mobile number you used when booking.')
+   151→      return
+   152→    }
+   153→    setTracking(true)
+   154→    try {
+   155→      const res = await fetch(`/api/bookings?phone=${encodeURIComponent(trackPhone.trim())}`)
+   156→      const data = await res.json()
+   157→      if (!res.ok) {
+   158→        toast.error(data?.error ?? 'Lookup failed.')
+   159→        return
+   160→      }
+   161→      setTrackResults(data.bookings)
+   162→    } catch {
+   163→      toast.error('Network error — please try again.')
+   164→    } finally {
+   165→      setTracking(false)
+   166→    }
+   167→  }
+   168→
+   169→  const resetForm = () => {
+   170→    setConfirmed(null)
+   171→    setSlot('')
+   172→    setForm({ name: '', phone: '', email: '', address: '', notes: '' })
+   173→  }
+   174→
+   175→  return (
+   176→    <section id="booking" className="scroll-mt-20 py-16 md:py-24">
+   177→      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+   178→        <SectionHeading
+   179→          eyebrow="Real-time booking"
+   180→          title="Pick a day. Lock your slot. That's it."
+   181→          sub="We're open every day of the week. Choose your schedule below and get instant confirmation with a booking reference — we'll follow up via SMS to finalize details."
+   182→        />
+   183→
+   184→        <Reveal>
+   185→          <Tabs value={tab} onValueChange={setTab} className="rounded-3xl border bg-card shadow-sm">
+   186→            <div className="border-b px-6 pt-5 md:px-8">
+   187→              <TabsList className="grid w-full max-w-md grid-cols-2">
+   188→                <TabsTrigger value="book" className="gap-1.5 font-bold">
+   189→                  <CalendarCheck2 className="h-4 w-4" aria-hidden /> Book
+   190→                </TabsTrigger>
+   191→                <TabsTrigger value="track" className="gap-1.5 font-bold">
+   192→                  <Search className="h-4 w-4" aria-hidden /> Track booking
+   193→                </TabsTrigger>
+   194→              </TabsList>
+   195→            </div>
+   196→
+   197→            {/* ------------------------------- BOOK ------------------------------ */}
+   198→            <TabsContent value="book" className="p-6 md:p-8">
+   199→              {confirmed ? (
+   200→                <div className="py-4 text-center" role="status">
+   201→                  <div>
+   202→                    <PartyPopper className="mx-auto h-14 w-14 text-primary" aria-hidden />
+   203→                  </div>
+   204→                  <h3 className="mt-4 text-2xl font-extrabold tracking-tight">Booking request received!</h3>
+   205→                  <p className="mt-2 text-muted-foreground">
+   206→                    Salamat, {confirmed.name.split(' ')[0]}! Our team will confirm your slot via SMS at{' '}
+   207→                    <strong className="text-foreground">{confirmed.phone}</strong> within the hour.
+   208→                  </p>
+   209→
+   210→                  <div className="mx-auto mt-6 max-w-md rounded-2xl border bg-secondary/60 p-5 text-left">
+   211→                    <p className="text-center text-xs font-bold uppercase tracking-widest text-muted-foreground">
+   212→                      Your booking reference
+   213→                    </p>
+   214→                    <p className="mt-1 text-center text-3xl font-extrabold tracking-tight text-primary">
+   215→                      {confirmed.reference}
+   216→                    </p>
+   217→                    <dl className="mt-4 space-y-2 text-sm">
+   218→                      <div className="flex justify-between gap-4">
+   219→                        <dt className="text-muted-foreground">Service</dt>
+   220→                        <dd className="text-right font-bold">
+   221→                          {SERVICES.find((s) => s.id === confirmed.serviceType)?.name}
+   222→                        </dd>
+   223→                      </div>
+   224→                      <div className="flex justify-between gap-4">
+   225→                        <dt className="text-muted-foreground">Schedule</dt>
+   226→                        <dd className="text-right font-bold">
+   227→                          {format(new Date(confirmed.preferredDate + 'T00:00:00'), 'EEE, MMM d, yyyy')}
+   228→                          <span className="block text-xs font-semibold text-muted-foreground">{confirmed.timeSlot}</span>
+   229→                        </dd>
+   230→                      </div>
+   231→                      <div className="flex justify-between gap-4">
+   232→                        <dt className="text-muted-foreground">Space</dt>
+   233→                        <dd className="text-right font-bold">{confirmed.spaceSize}</dd>
+   234→                      </div>
+   235→                      {confirmed.estimate ? (
+   236→                        <div className="flex justify-between gap-4">
+   237→                          <dt className="text-muted-foreground">Estimate</dt>
+   238→                          <dd className="text-right font-bold text-primary">{formatPeso(confirmed.estimate)}</dd>
+   239→                        </div>
+   240→                      ) : null}
+   241→                    </dl>
+   242→                  </div>
+   243→
+   244→                  <div className="mx-auto mt-5 max-w-md text-left text-[13px] leading-relaxed text-muted-foreground">
+   245→                    <p className="font-bold text-foreground">What happens next?</p>
+   246→                    <p>1. We confirm your slot & final quote via SMS or Messenger.</p>
+   247→                    <p>2. Your crew arrives on schedule, fully equipped.</p>
+   248→                    <p>3. Pay after the clean — GCash, Maya, bank, or cash.</p>
+   249→                  </div>
+   250→
+   251→                  <Button variant="outline" className="mt-6 rounded-full font-bold" onClick={resetForm}>
+   252→                    <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden />
+   253→                    Make another booking
+   254→                  </Button>
+   255→                </div>
+   256→              ) : (
+   257→                <div className="grid gap-8 lg:grid-cols-5">
+   258→                  <div className="lg:col-span-3">
+   259→                    {/* date strip */}
+   260→                    <fieldset>
+   261→                      <legend className="flex items-center gap-2 text-sm font-bold">
+   262→                        <CalendarDays className="h-4 w-4 text-primary" aria-hidden />
+   263→                        1. Choose a date <span className="font-semibold text-muted-foreground">(we're open daily!)</span>
+   264→                      </legend>
+   265→                      <div
+   266→                        className="scroll-slim mt-3 flex gap-2 overflow-x-auto pb-2"
+   267→                        role="radiogroup"
+   268→                        aria-label="Preferred date"
+   269→                      >
+   270→                        {(mounted ? days : Array.from({ length: 14 })).map((d, i) => (
+   271→                          <button
+   272→                            key={i}
+   273→                            role="radio"
+   274→                            aria-checked={dateIdx === i}
+   275→                            disabled={!mounted}
+   276→                            onClick={() => setDateIdx(i)}
+   277→                            className={cn(
+   278→                              'flex min-w-[68px] shrink-0 flex-col items-center rounded-xl border-2 px-2.5 py-2.5 transition-all focus-visible:outline-2 focus-visible:outline-ring',
+   279→                              dateIdx === i
+   280→                                ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+   281→                                : 'border-border bg-background hover:border-primary/40'
+   282→                            )}
+   283→                          >
+   284→                            <span className="text-[10.5px] font-bold uppercase tracking-wide opacity-80">
+   285→                              {mounted ? format(days[i], 'EEE') : '—'}
+   286→                            </span>
+   287→                            <span className="text-lg font-extrabold leading-tight">
+   288→                              {mounted ? format(days[i], 'd') : '·'}
+   289→                            </span>
+   290→                            <span className="text-[10.5px] font-semibold opacity-80">
+   291→                              {mounted ? format(days[i], 'MMM') : '—'}
+   292→                            </span>
+   293→                          </button>
+   294→                        ))}
+   295→                      </div>
+   296→                    </fieldset>
+   297→
+   298→                    {/* time slots */}
+   299→                    <fieldset className="mt-6">
+   300→                      <legend className="flex items-center gap-2 text-sm font-bold">
+   301→                        <Clock className="h-4 w-4 text-primary" aria-hidden />
+   302→                        2. Preferred time
+   303→                      </legend>
+   304→                      <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Preferred time slot">
+   305→                        {TIME_SLOTS.map((t) => (
+   306→                          <button
+   307→                            key={t}
+   308→                            role="radio"
+   309→                            aria-checked={slot === t}
+   310→                            onClick={() => setSlot(t)}
+   311→                            className={cn(
+   312→                              'rounded-full border-2 px-4 py-2 text-sm font-bold transition-all focus-visible:outline-2 focus-visible:outline-ring',
+   313→                              slot === t
+   314→                                ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+   315→                                : 'border-border bg-background hover:border-primary/40'
+   316→                            )}
+   317→                          >
+   318→                            {t}
+   319→                          </button>
+   320→                        ))}
+   321→                      </div>
+   322→                    </fieldset>
+   323→
+   324→                    {/* contact details */}
+   325→                    <fieldset className="mt-6">
+   326→                      <legend className="flex items-center gap-2 text-sm font-bold">
+   327→                        <User className="h-4 w-4 text-primary" aria-hidden />
+   328→                        3. Your details
+   329→                      </legend>
+   330→                      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+   331→                        <div className="grid gap-1.5">
+   332→                          <Label htmlFor="bk-name">Full name *</Label>
+   333→                          <Input
+   334→                            id="bk-name"
+   335→                            placeholder="Juan Dela Cruz"
+   336→                            value={form.name}
+   337→                            onChange={(e) => setForm({ ...form, name: e.target.value })}
+   338→                            autoComplete="name"
+   339→                          />
+   340→                        </div>
+   341→                        <div className="grid gap-1.5">
+   342→                          <Label htmlFor="bk-phone">Mobile number *</Label>
+   343→                          <Input
+   344→                            id="bk-phone"
+   345→                            type="tel"
+   346→                            placeholder="0917 123 4567"
+   347→                            value={form.phone}
+   348→                            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+   349→                            autoComplete="tel"
+   350→                          />
+   351→                        </div>
+   352→                        <div className="grid gap-1.5">
+   353→                          <Label htmlFor="bk-email">Email (optional)</Label>
+   354→                          <Input
+   355→                            id="bk-email"
+   356→                            type="email"
+   357→                            placeholder="you@email.com"
+   358→                            value={form.email}
+   359→                            onChange={(e) => setForm({ ...form, email: e.target.value })}
+   360→                            autoComplete="email"
+   361→                          />
+   362→                        </div>
+   363→                        <div className="grid gap-1.5">
+   364→                          <Label htmlFor="bk-address" className="flex items-center gap-1">
+   365→                            <MapPin className="h-3.5 w-3.5 text-primary" aria-hidden /> Service address *
+   366→                          </Label>
+   367→                          <Input
+   368→                            id="bk-address"
+   369→                            placeholder="Unit 12B Tower, Brgy., City"
+   370→                            value={form.address}
+   371→                            onChange={(e) => setForm({ ...form, address: e.target.value })}
+   372→                            autoComplete="street-address"
+   373→                          />
+   374→                        </div>
+   375→                        <div className="grid gap-1.5 sm:col-span-2">
+   376→                          <Label htmlFor="bk-notes" className="flex items-center gap-1">
+   377→                            <NotebookPen className="h-3.5 w-3.5 text-primary" aria-hidden /> Special notes (pets?
+   378→                            priority areas? product preference?)
+   379→                          </Label>
+   380→                          <Textarea
+   381→                            id="bk-notes"
+   382→                            placeholder="e.g. We have 2 cats — please use pet-safe products. Focus on the kitchen."
+   383→                            value={form.notes}
+   384→                            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+   385→                            rows={2}
+   386→                          />
+   387→                        </div>
+   388→                      </div>
+   389→                    </fieldset>
+   390→                  </div>
+   391→
+   392→                  {/* summary sidebar */}
+   393→                  <aside className="lg:col-span-2">
+   394→                    <div className="sticky top-24 rounded-2xl border bg-secondary/50 p-5">
+   395→                      <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Booking summary</p>
+   396→
+   397→                      <div className="mt-3 grid gap-1.5">
+   398→                        <Label htmlFor="bk-service">Service</Label>
+   399→                        <select
+   400→                          id="bk-service"
+   401→                          value={serviceId}
+   402→                          onChange={(e) => setServiceId(e.target.value as ServiceId)}
+   403→                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring"
+   404→                        >
+   405→                          {SERVICES.map((s) => (
+   406→                            <option key={s.id} value={s.id}>
+   407→                              {s.name}
+   408→                            </option>
+   409→                          ))}
+   410→                        </select>
+   411→                      </div>
+   412→
+   413→                      {isCarpet ? (
+   414→                        <div className="mt-4">
+   415→                          <Label className="mb-2 block">Carpeted rooms</Label>
+   416→                          <div className="flex flex-wrap gap-1.5">
+   417→                            {[1, 2, 3, 4].map((r) => (
+   418→                              <button
+   419→                                key={r}
+   420→                                type="button"
+   421→                                onClick={() => setCarpetRooms(r)}
+   422→                                aria-pressed={carpetRooms === r}
+   423→                                className={cn(
+   424→                                  'rounded-full border px-3 py-1.5 text-xs font-bold transition-colors',
+   425→                                  carpetRooms === r
+   426→                                    ? 'border-primary bg-primary text-primary-foreground'
+   427→                                    : 'border-border hover:border-primary/40'
+   428→                                )}
+   429→                              >
+   430→                                {r === 4 ? '4+' : r}
+   431→                              </button>
+   432→                            ))}
+   433→                          </div>
+   434→                        </div>
+   435→                      ) : (
+   436→                        <div className="mt-4">
+   437→                          <div className="mb-2 flex items-center justify-between">
+   438→                            <Label>Space size</Label>
+   439→                            <span className="text-sm font-extrabold text-primary">{sqm} sqm</span>
+   440→                          </div>
+   441→                          <Slider
+   442→                            value={[sqm]}
+   443→                            onValueChange={(v) => setSqm(v[0])}
+   444→                            min={5}
+   445→                            max={150}
+   446→                            step={5}
+   447→                            aria-label="Space size in square meters"
+   448→                          />
+   449→                        </div>
+   450→                      )}
+   451→
+   452→                      <dl className="mt-5 space-y-2 border-t pt-4 text-sm">
+   453→                        <div className="flex justify-between gap-3">
+   454→                          <dt className="text-muted-foreground">Date</dt>
+   455→                          <dd className="font-bold">{mounted ? format(days[dateIdx], 'EEE, MMM d') : '—'}</dd>
+   456→                        </div>
+   457→                        <div className="flex justify-between gap-3">
+   458→                          <dt className="text-muted-foreground">Time</dt>
+   459→                          <dd className={cn('font-bold', !slot && 'text-muted-foreground')}>{slot || 'Not picked'}</dd>
+   460→                        </div>
+   461→                        <div className="flex justify-between gap-3">
+   462→                          <dt className="text-muted-foreground">Space</dt>
+   463→                          <dd className="font-bold">{spaceSize}</dd>
+   464→                        </div>
+   465→                        <div className="flex justify-between gap-3 border-t pt-3">
+   466→                          <dt className="font-bold">Estimated total</dt>
+   467→                          <dd className="text-lg font-extrabold text-primary">{estimate.priceLabel}</dd>
+   468→                        </div>
+   469→                      </dl>
+   470→
+   471→                      <Button onClick={submit} disabled={submitting} className="mt-5 h-12 w-full rounded-full text-[15px] font-bold shadow-sm">
+   472→                        {submitting ? (
+   473→                          <>
+   474→                            <Loader2 className="mr-2 h-4.5 w-4.5 animate-spin" aria-hidden />
+   475→                            Sending request…
+   476→                          </>
+   477→                        ) : (
+   478→                          <>
+   479→                            <CheckCircle2 className="mr-1.5 h-4.5 w-4.5" aria-hidden />
+   480→                            Confirm booking request
+   481→                          </>
+   482→                        )}
+   483→                      </Button>
+   484→                      <p className="mt-3 flex items-center justify-center gap-1 text-center text-[11.5px] leading-snug text-muted-foreground">
+   485→                        <Phone className="h-3 w-3" aria-hidden />
+   486→                        Need help? Call {`+63 954-324-5023`} — we answer daily 8AM–6PM
+   487→                      </p>
+   488→                    </div>
+   489→                  </aside>
+   490→                </div>
+   491→              )}
+   492→            </TabsContent>
+   493→
+   494→            {/* ------------------------------- TRACK ----------------------------- */}
+   495→            <TabsContent value="track" className="p-6 md:p-8">
+   496→              <div className="mx-auto max-w-xl">
+   497→                <p className="text-sm text-muted-foreground">
+   498→                  Enter the mobile number you booked with to see your cleaning schedule and booking references.
+   499→                </p>
+   500→                <div className="mt-4 flex gap-2">
+   501→                  <div className="relative flex-1">
+   502→                    <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+   503→                    <Input
+   504→                      type="tel"
+   505→                      placeholder="0917 123 4567"
+   506→                      value={trackPhone}
+   507→                      onChange={(e) => setTrackPhone(e.target.value)}
+   508→                      onKeyDown={(e) => e.key === 'Enter' && track()}
+   509→                      className="pl-9"
+   510→                      aria-label="Mobile number used for booking"
+   511→                    />
+   512→                  </div>
+   513→                  <Button onClick={track} disabled={tracking} className="rounded-full font-bold">
+   514→                    {tracking ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />}
+   515→                    <span className="ml-1.5">Find bookings</span>
+   516→                  </Button>
+   517→                </div>
+   518→
+   519→                {trackResults && (
+   520→                  <div className="mt-6">
+   521→                    {trackResults.length === 0 ? (
+   522→                      <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+   523→                        No bookings found for this number yet. Try the number you entered on the booking form —
+   524→                        or make your first booking in the Book tab!
+   525→                      </div>
+   526→                    ) : (
+   527→                      <ul className="scroll-slim max-h-96 space-y-3 overflow-y-auto pr-1" aria-label="Your bookings">
+   528→                        {trackResults.map((b) => (
+   529→                          <li key={b.id} className="rounded-2xl border bg-background p-4 shadow-sm">
+   530→                            <div className="flex flex-wrap items-center justify-between gap-2">
+   531→                              <span className="rounded-lg bg-primary/10 px-2.5 py-1 font-mono text-sm font-extrabold text-primary">
+   532→                                {b.reference}
+   533→                              </span>
+   534→                              <span
+   535→                                className={cn(
+   536→                                  'rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide',
+   537→                                  b.status === 'COMPLETED'
+   538→                                    ? 'bg-muted text-muted-foreground'
+   539→                                    : b.status === 'CANCELLED'
+   540→                                      ? 'bg-destructive/10 text-destructive'
+   541→                                      : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+   542→                                )}
+   543→                              >
+   544→                                {b.status}
+   545→                              </span>
+   546→                            </div>
+   547→                            <p className="mt-2 font-bold">{SERVICES.find((s) => s.id === b.serviceType)?.name}</p>
+   548→                            <p className="mt-1 text-[13px] text-muted-foreground">
+   549→                              {format(new Date(b.preferredDate + 'T00:00:00'), 'EEEE, MMMM d, yyyy')} · {b.timeSlot}
+   550→                            </p>
+   551→                            <p className="text-[13px] text-muted-foreground">
+   552→                              {b.spaceSize}
+   553→                              {b.estimate ? ` · est. ${formatPeso(b.estimate)}` : ''}
+   554→                            </p>
+   555→                          </li>
+   556→                        ))}
+   557→                      </ul>
+   558→                    )}
+   559→                  </div>
+   560→                )}
+   561→              </div>
+   562→            </TabsContent>
+   563→          </Tabs>
+   564→        </Reveal>
+   565→      </div>
+   566→    </section>
+   567→  )
+   568→}
+   569→
